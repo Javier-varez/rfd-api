@@ -1,0 +1,57 @@
+# Placeholder rfd-api configuration for the dev overlay.
+#
+# Nothing in this file is a real secret. Copy this overlay and substitute real
+# values for a real deployment; the file is loaded into the rfd-api-config
+# secret by kustomize, so treat your copy as sensitive.
+#
+# The container runs with a read-only root filesystem, and the only writable
+# path is /tmp. Leave `log_directory` unset so logs go to stdout — setting it
+# to "" is not the same thing, that writes into the working directory and the
+# service will fail to start. Likewise omit the [spec] table unless
+# `output_path` points somewhere under /tmp.
+
+log_format = "json"
+
+# Read from the rfd-api-mappers config map, projected into this directory
+# alongside config.toml.
+initial_mappers = "/etc/rfd-api/mappers.toml"
+
+public_url = "http://rfd-api.rfd.svc.cluster.local:8080"
+
+# Must match the Service targetPort in base/rfd-api.yaml.
+server_port = 8080
+
+# Overridden at runtime by the DATABASE_URL environment variable taken from the
+# rfd-postgres secret, which is what keeps the password in one place.
+database_url = "postgres://rfd:replace-me@postgres:5432/rfd"
+
+# Real deployments need at least one signer and one verifier. See
+# rfd-api/config.example.toml for the local and Cloud KMS key formats.
+keys = []
+
+[jwt]
+default_expiration = 3600
+
+[authn.oauth.github.device]
+client_id = "00000000-0000-0000-0000-000000000000"
+remote_client_id = "replace-me"
+remote_client_secret = "replace-me"
+
+[magic_link]
+templates = []
+
+[search]
+host = ""
+key = ""
+index = ""
+
+[content.templates]
+
+[services.github]
+owner = "oxidecomputer"
+repo = "rfd"
+path = "rfd"
+default_branch = "master"
+
+[services.github.auth]
+token = "replace-me"

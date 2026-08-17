@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rfd
+
+resources:
+  - ../../base
+
+# Matches the images referenced in the base by their placeholder names.
+images:
+  - name: rfd-api
+    newName: localhost/rfd-api
+    newTag: test
+  - name: rfd-processor
+    newName: localhost/rfd-processor
+    newTag: test
+
+# The generated names carry a content hash, so editing any of these files
+# produces a new secret or config map name and rolls the pods that mount it.
+secretGenerator:
+  - name: rfd-api-config
+    files:
+      - config.toml=rfd-api.config.toml
+  - name: rfd-processor-config
+    files:
+      - config.toml=rfd-processor.config.toml
+  - name: rfd-postgres
+    envs:
+      - postgres.env
+
+configMapGenerator:
+  - name: rfd-api-mappers
+    files:
+      - mappers.toml

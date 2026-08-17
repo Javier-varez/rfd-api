@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rfd-api
+  labels:
+    app.kubernetes.io/name: rfd-api
+spec:
+  selector:
+    app.kubernetes.io/name: rfd-api
+  ports:
+    - name: http
+      port: 8080
+      # Must match `server_port` in the config.toml held by the rfd-api-config
+      # secret.
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rfd-api
+  labels:
+    app.kubernetes.io/name: rfd-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rfd-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rfd-api
+    spec:
+      # The service layers environment variables over its config file, so any
+      # stray variable whose name matches a config field wins over the mounted
+      # configuration. Kubernetes injects a variable per service into every
+      # pod, so those injections are disabled to keep the config file
+      # authoritative.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # `migrate` runs the v-api migrations and the RFD migrations embedded
+        # in rfd-model. It reads no config file, only DATABASE_URL. If Postgres
+        # is not accepting connections yet this exits non-zero and the kubelet
+        # retries with backoff.
+        - name: migrate
+          image: rfd-api:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - migrate
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rfd-postgres
+                  key: DATABASE_URL
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      containers:
+        - name: rfd-api
+          image: rfd-api:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - start
+          env:
+            # Overrides `database_url` from the mounted config file, which
+            # keeps the credentials in a single secret.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rfd-postgres
+                  key: DATABASE_URL
+          ports:
+            - name: http
+              containerPort: 8080
+          # JWKS is unauthenticated and served from the in-memory key set, so
+          # it reports process health without depending on the database.
+          readinessProbe:
+            httpGet:
+              path: /.well-known/jwks.json
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /.well-known/jwks.json
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/rfd-api
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # config.toml comes from a secret and mappers.toml from a config map,
+        # projected into the single directory the service reads by default.
+        - name: config
+          projected:
+            # Owned root:fsGroup, so 0440 is still readable by uid 10001
+            # through its fsGroup supplementary group.
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: rfd-api-config
+                  items:
+                    - key: config.toml
+                      path: config.toml
+              - configMap:
+                  name: rfd-api-mappers
+                  items:
+                    - key: mappers.toml
+                      path: mappers.toml
+        - name: tmp
+          emptyDir: {}

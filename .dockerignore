@@ -1,0 +1,36 @@
+# Build context exclusions for the images under docker/.
+#
+# Note that parse-rfd/parser/dist/index.js is committed and is `include_str!`d
+# by parse-rfd, so `dist` must not be excluded wholesale.
+
+# Build outputs and vendored dependencies
+**/target
+**/node_modules
+rfd-processor/.bundle
+rfd-processor/vendor
+rfd-ts/dist
+remix-auth-rfd/dist
+
+# Local runtime configuration. These are mounted as volumes at run time and
+# must never be baked into an image. The runtime stages only ever copy build
+# artifacts out of the builder stages, so this is defense in depth.
+rfd-api/config.toml
+rfd-api/mappers.toml
+rfd-processor/config.toml
+spec.toml
+key.json
+test-key.json
+gcp.json
+
+# Logs and local state
+rfd-api.log.*
+local_data
+.env
+
+# Version control and tooling. Excluding .git means build-info cannot read a
+# commit hash, so `rfd-api version` reports "unknown, dev". Drop the .git line
+# below if you want the hash embedded in the image.
+# .git
+.github
+.flox
+.rustup

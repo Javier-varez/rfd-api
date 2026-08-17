@@ -1,0 +1,95 @@
+# Headless service: `postgres` resolves to the StatefulSet pod, so the
+# database_url host in the application configuration is simply `postgres`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      # The postgres entrypoint starts as root to chown PGDATA before dropping
+      # to uid 999, so the restrictive security context used by the rfd
+      # workloads is deliberately not applied here. fsGroup is enough to make
+      # the mounted volume writable.
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: docker.io/library/postgres:17
+          envFrom:
+            - secretRef:
+                name: rfd-postgres
+          env:
+            # The volume is mounted at /var/lib/postgresql/data, and initdb
+            # refuses to run in a directory that is not empty (a fresh
+            # PersistentVolume usually contains lost+found), so keep the
+            # cluster in a subdirectory.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          # $(VAR) expansion is not applied to probe commands, so these go
+          # through a shell to pick the credentials out of the environment.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi

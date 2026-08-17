@@ -89,6 +89,81 @@ CI renders `rfd-processor/tests/rfd_9999` on Linux and compares the checksum
 against `rfd-processor/tests/rfd_9999.pdf`. If the checksum changes, CI uploads
 the generated PDF and a `diff-pdf` visual diff artifact.
 
+### Containers
+
+Both services have images under `docker/`. The processor image also carries the
+PDF toolchain (`asciidoctor-pdf`, `mmdc` and Chromium, plus the `node` binary
+that `parse-rfd` shells out to), so nothing needs to be installed on the host.
+The repository root is the build context:
+
+```sh
+podman build -t rfd-api -f docker/rfd-api.Dockerfile .
+podman build -t rfd-processor -f docker/rfd-processor.Dockerfile .
+```
+
+Configuration is never baked into an image. Each service reads the first entry
+of its default config search path, so mount the files there:
+
+| File | Mount point |
+| --- | --- |
+| `rfd-api/config.toml` | `/etc/rfd-api/config.toml` |
+| `rfd-api/mappers.toml` | `/etc/rfd-api/mappers.toml` |
+| `rfd-processor/config.toml` | `/etc/rfd-processor/config.toml` |
+
+Point `initial_mappers` at the mounted mappers file:
+
+```toml
+initial_mappers = "/etc/rfd-api/mappers.toml"
+```
+
+The mappers lookup is optional, so a missing or misnamed mount is not an error
+— the service starts with no initial groups or mappers.
+
+Both services layer environment variables on top of the file sources, so an
+env var silently wins over the mounted config: setting `DATABASE_URL`
+overrides `database_url` from config.toml, `LOG_FORMAT` overrides
+`log_format`, and so on.
+
+The images are subcommand shaped, which makes the config easy to check before
+starting anything. On SELinux hosts the `z` mount option is required:
+
+```sh
+podman run --rm -v "$PWD/rfd-api/config.toml:/etc/rfd-api/config.toml:ro,z" \
+    rfd-api validate
+```
+
+`docker/compose.yaml` wires both services up against a Postgres container with
+these mounts already in place. It is standard Compose schema, so it needs a
+compose provider (`podman-compose` or the `docker-compose` plugin) installed
+alongside podman:
+
+```sh
+podman compose -f docker/compose.yaml build
+podman compose -f docker/compose.yaml run --rm rfd-api migrate
+podman compose -f docker/compose.yaml up
+```
+
+`migrate` runs both the v-api and RFD migrations and needs to be run once
+before the services first start.
+
+`build-info` reads the commit hash from the `.git` directory in the build
+context, so `rfd-api version` reports it. Uncommenting the `.git` line in
+`.dockerignore` excludes it and makes the version read `unknown, dev`, at the
+cost of a smaller context.
+
+### Kubernetes
+
+`k8s/` holds kustomize manifests that deploy both services and a Postgres
+StatefulSet, with the configuration injected as secrets and the mappers file as
+a config map:
+
+```sh
+kubectl apply -k k8s/overlays/dev
+```
+
+See [k8s/README.md](k8s/README.md) for the layout and for what has to be
+replaced before deploying anywhere real.
+
 ## Background
 
 Objects reference:

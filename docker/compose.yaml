@@ -1,0 +1,82 @@
+# Local composition of the two backend services and their database.
+#
+#   podman compose -f docker/compose.yaml build
+#   podman compose -f docker/compose.yaml run --rm rfd-api migrate
+#   podman compose -f docker/compose.yaml up
+#
+# `migrate` runs both the v-api and RFD migrations and needs to be run once
+# before the services start; it reads DATABASE_URL from the environment.
+#
+# The configuration and mapper files are injected as bind mounts rather than
+# built into the images, so edits take effect on the next restart. Copy the
+# examples to get started:
+#
+#   cp rfd-api/config.example.toml       rfd-api/config.toml
+#   cp rfd-api/mappers.example.toml      rfd-api/mappers.toml
+#   cp rfd-processor/config.example.toml rfd-processor/config.toml
+#
+# The example configs document alternative settings by declaring some tables
+# twice, so they are not directly loadable — prune them before first use.
+#
+# Do this before the first `up`: a bind mount whose source file is missing is
+# created on the host as an empty directory instead.
+#
+# The `z` mount option relabels for SELinux, which is required on Fedora and
+# RHEL hosts; without it the containers get EACCES and report the config as
+# missing. It is harmless elsewhere.
+
+name: rfd
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17
+    environment:
+      POSTGRES_USER: rfd
+      POSTGRES_PASSWORD: rfd
+      POSTGRES_DB: rfd
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rfd -d rfd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  rfd-api:
+    build:
+      context: ..
+      dockerfile: docker/rfd-api.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # `migrate` needs this because it reads no config file. Note that the
+      # environment is layered on top of the file sources, so this also
+      # overrides `database_url` from the mounted config for `start` — editing
+      # that field in config.toml has no effect while this is set.
+      DATABASE_URL: postgres://rfd:rfd@postgres/rfd
+    # Set `initial_mappers = "/etc/rfd-api/mappers.toml"` in config.toml to
+    # load the mappers file. The lookup is optional, so a wrong path or a
+    # missing mount starts cleanly with no initial groups or mappers rather
+    # than failing.
+    volumes:
+      - ../rfd-api/config.toml:/etc/rfd-api/config.toml:ro,z
+      - ../rfd-api/mappers.toml:/etc/rfd-api/mappers.toml:ro,z
+    # Must match `server_port` in config.toml.
+    ports:
+      - "8080:8080"
+
+  rfd-processor:
+    build:
+      context: ..
+      dockerfile: docker/rfd-processor.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../rfd-processor/config.toml:/etc/rfd-processor/config.toml:ro,z
+
+volumes:
+  postgres-data:

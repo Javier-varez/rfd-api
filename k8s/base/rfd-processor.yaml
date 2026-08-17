@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rfd-processor
+  labels:
+    app.kubernetes.io/name: rfd-processor
+spec:
+  # The processor is a singleton worker: it scans the RFD repository and claims
+  # jobs on a timer. Recreate keeps a second copy from starting alongside the
+  # old one during a rollout.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rfd-processor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rfd-processor
+    spec:
+      # See the note in rfd-api.yaml: the processor also layers the environment
+      # over its config file.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rfd-processor
+          image: rfd-processor:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - start
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rfd-postgres
+                  key: DATABASE_URL
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # PDF rendering forks asciidoctor-pdf and a headless Chromium, so
+          # this needs materially more memory than the API.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/rfd-processor
+              readOnly: true
+            # RFD content is staged in a temp directory before rendering.
+            - name: tmp
+              mountPath: /tmp
+            # Chromium needs a writable HOME for its profile and cache.
+            - name: home
+              mountPath: /home/rfd
+      volumes:
+        - name: config
+          secret:
+            secretName: rfd-processor-config
+            # Owned root:fsGroup, so 0440 is still readable by uid 10001
+            # through its fsGroup supplementary group.
+            defaultMode: 0440
+            items:
+              - key: config.toml
+                path: config.toml
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
