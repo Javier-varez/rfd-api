@@ -54,6 +54,7 @@ uuid = { workspace = true, features = ["v4", "serde"]  }
 v-api = { workspace = true }
 v-model = { workspace = true }
 v-api-permission-derive = { workspace = true }
+smtp2go = { workspace = true }
 
 [build-dependencies]
 build-info = { path = "../build-info" }

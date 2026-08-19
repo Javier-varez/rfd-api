@@ -95,8 +95,15 @@ pub struct MagicLinkTemplate {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
+pub enum Smtp2GoKeySource {
+    Env,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum EmailService {
     Resend { key: String },
+    Smtp2Go { key_source: Smtp2GoKeySource },
 }
 
 const DEFAULT_CONFIG_PATHS: &[&str] = &["/etc/rfd-api/config.toml", "rfd-api/config.toml"];

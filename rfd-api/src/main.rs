@@ -27,7 +27,7 @@ use v_model::{schema_ext::MagicLinkMedium, storage::postgres::PostgresStore as V
 use crate::{
     config::{AppConfig, EmailService, ServerLogFormat},
     initial_data::InitialData,
-    magic_link::{MagicLinkMessageBuilder, ResendMagicLink},
+    magic_link::{MagicLinkMessageBuilder, ResendMagicLink, Smtp2GoMagicLink},
 };
 
 mod caller;
@@ -290,6 +290,21 @@ async fn run_server(config_path: Option<String>) -> anyhow::Result<()> {
                         target,
                         ResendMagicLink::new(key.to_string(), template.from),
                     );
+                }
+                EmailService::Smtp2Go { key_source } => {
+                    match key_source {
+                        config::Smtp2GoKeySource::Env => {
+                            let api_key = std::env::var("SMTP2GO_API_KEY");
+                            if let Err(error) = api_key {
+                                tracing::error!(
+                                    "SMTP2GO_API_KEY not available: {error}. Sending magic links will fail."
+                                );
+                            }
+                        }
+                    }
+                    v_ctx
+                        .magic_link
+                        .set_messenger(target, Smtp2GoMagicLink::new(template.from));
                 }
             }
         }

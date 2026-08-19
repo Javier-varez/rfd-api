@@ -81,6 +81,7 @@ v-cli-sdk = { git = "https://github.com/oxidecomputer/v-api", tag = "v0.4.10" }
 v-model = { git = "https://github.com/oxidecomputer/v-api", tag = "v0.4.10" }
 v-api-permission-derive = { git = "https://github.com/oxidecomputer/v-api", tag = "v0.4.10" }
 yup-oauth2 = { version = "12.1.2", default-features = false, features = ["hyper-rustls", "service-account", "aws-lc-rs"] }
+smtp2go = "0.1.8"
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]

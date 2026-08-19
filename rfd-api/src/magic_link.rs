@@ -85,3 +85,42 @@ impl Messenger for ResendMagicLink {
         Ok(())
     }
 }
+
+pub struct Smtp2GoMagicLink {
+    from: String,
+}
+
+impl Smtp2GoMagicLink {
+    pub fn new(from: String) -> Self {
+        Self { from }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("SMTP2GO API error: {0:?}")]
+struct Smtp2GoErrorWrapper(smtp2go::Smtp2goApiError);
+
+impl From<smtp2go::Smtp2goApiError> for Smtp2GoErrorWrapper {
+    fn from(value: smtp2go::Smtp2goApiError) -> Self {
+        Self(value)
+    }
+}
+
+#[async_trait]
+impl Messenger for Smtp2GoMagicLink {
+    async fn send(&self, message: Message) -> Result<(), MessengerError> {
+        let mut email = smtp2go::Email::new();
+        email
+            .from(&self.from)
+            .subject(message.subject.unwrap_or_default())
+            .to(&[message.recipient])
+            .text_body(&message.text);
+        if let Some(html_body) = &message.html {
+            email.html_body(html_body);
+        }
+
+        email.send().map_err(Smtp2GoErrorWrapper::from)?;
+
+        Ok(())
+    }
+}
